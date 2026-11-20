@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { clientStore } from "@/lib/store";
 
 export interface MemberUnitRecord {
   id: string;
@@ -23,15 +24,60 @@ export interface MemberUnitRecord {
 }
 
 export default function RegistersClient({
-  members,
-  societyName,
-  regNo,
+  members: initialMembers,
+  societyName: initialSocietyName,
+  regNo: initialRegNo,
 }: {
   members: MemberUnitRecord[];
   societyName: string;
   regNo: string;
 }) {
   const [activeTab, setActiveTab] = useState<"form_i" | "form_j">("form_i");
+  const [members, setMembers] = useState<MemberUnitRecord[]>(initialMembers);
+  const [societyName, setSocietyName] = useState(initialSocietyName);
+  const [regNo, setRegNo] = useState(initialRegNo);
+
+  const loadRegisters = () => {
+    if (clientStore.isDataWiped()) {
+      const units = clientStore.getUnits([]);
+      const mapped: MemberUnitRecord[] = units.map((u, idx) => ({
+        id: u.id,
+        wing: u.wing,
+        flatNumber: u.flatNumber,
+        ownerName: u.ownerName,
+        ownerPhone: u.ownerPhone,
+        carpetAreaSqft: u.carpetAreaSqft,
+        constructionCost: u.constructionCost,
+        occupancy: u.occupancy,
+        shareCertificateNo: u.shareCertificateNo || `SC-${u.wing}${u.flatNumber}`,
+        shareDistinctiveFrom: (idx * 5) + 1,
+        shareDistinctiveTo: (idx * 5) + 5,
+        shareValue: 250,
+        entranceFeePaid: 100,
+        admissionDate: u.admissionDate || new Date().toISOString().split("T")[0],
+        nomineeName: u.nomineeName || "Registered in Form 14",
+        nomineeRelation: u.nomineeRelation || "Nominee",
+        createdAt: u.createdAt,
+      }));
+      setMembers(mapped);
+
+      const soc = clientStore.getSociety();
+      if (soc) {
+        setSocietyName(soc.name);
+        setRegNo(soc.registrationNo);
+      }
+    } else {
+      setMembers(initialMembers);
+      setSocietyName(initialSocietyName);
+      setRegNo(initialRegNo);
+    }
+  };
+
+  useEffect(() => {
+    loadRegisters();
+    const unsub = clientStore.subscribe(loadRegisters);
+    return () => unsub();
+  }, []);
 
   return (
     <div className="space-y-6">

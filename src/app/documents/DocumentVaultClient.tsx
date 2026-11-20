@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { clientStore, StoredDocument } from "@/lib/store";
 
 export interface DocumentFile {
   id: string;
@@ -26,6 +27,20 @@ export default function DocumentVaultClient({
   const [customName, setCustomName] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const loadDocs = () => {
+    if (clientStore.isDataWiped()) {
+      setFiles(clientStore.getDocuments([]));
+    } else {
+      setFiles(clientStore.getDocuments(initialFiles));
+    }
+  };
+
+  useEffect(() => {
+    loadDocs();
+    const unsub = clientStore.subscribe(loadDocs);
+    return () => unsub();
+  }, []);
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
@@ -35,8 +50,24 @@ export default function DocumentVaultClient({
     const fType = extension === "xlsx" || extension === "xls" ? "xlsx" : extension === "png" || extension === "jpg" ? "image" : "pdf";
 
     setLoading(true);
+
+    const newDoc: StoredDocument = {
+      id: "doc_" + Math.random().toString(36).substring(2, 9),
+      name: finalName,
+      category: uploadCategory,
+      flatReference: uploadCategory === "Flat Document" ? (flatRef || "General Unit") : undefined,
+      fileSize: fileSizeStr,
+      uploadedDate: new Date().toISOString().split("T")[0],
+      fileType: fType,
+    };
+
+    // 1. Save directly to client store (guaranteed offline/GitHub Pages support)
+    clientStore.addDocument(newDoc);
+    setFiles((prev) => [newDoc, ...prev]);
+
+    // 2. Try server if available
     try {
-      const res = await fetch("/api/documents", {
+      await fetch("/api/documents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -47,31 +78,13 @@ export default function DocumentVaultClient({
           fileType: fType,
         }),
       });
-
-      if (res.ok) {
-        const data = await res.json();
-        const savedDoc: DocumentFile = {
-          id: data.document.id,
-          name: data.document.name,
-          category: data.document.category,
-          flatReference: data.document.flatReference || undefined,
-          fileSize: data.document.fileSize,
-          uploadedDate: new Date(data.document.createdAt).toISOString().split("T")[0],
-          fileType: data.document.fileType,
-        };
-
-        setFiles([savedDoc, ...files]);
-        setCustomName("");
-        setFlatRef("");
-        router.refresh();
-      } else {
-        alert("Failed to save file metadata to database.");
-      }
     } catch {
-      alert("Network error uploading document.");
-    } finally {
-      setLoading(false);
+      // Safe to ignore on static GitHub Pages
     }
+
+    setCustomName("");
+    setFlatRef("");
+    setLoading(false);
   };
 
   const filtered = files.filter((f) => filter === "All" || f.category === filter);

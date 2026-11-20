@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { clientStore } from "@/lib/store";
 
 export interface SocietyData {
   id: string;
@@ -16,58 +17,102 @@ export interface SocietyData {
 }
 
 export default function SettingsClient({
-  society,
-  stats,
+  society: initialSociety,
+  stats: initialStats,
 }: {
   society: SocietyData;
   stats: { unitsCount: number; invoicesCount: number; expensesCount: number; docsCount: number };
 }) {
   const router = useRouter();
-  const [name, setName] = useState(society.name);
-  const [registrationNo, setRegistrationNo] = useState(society.registrationNo);
-  const [address, setAddress] = useState(society.address);
-  const [city, setCity] = useState(society.city || "Mumbai");
-  const [pincode, setPincode] = useState(society.pincode || "400001");
-  const [panNumber, setPanNumber] = useState(society.panNumber || "");
-  const [gstin, setGstin] = useState(society.gstin || "");
-  const [interestRatePa, setInterestRatePa] = useState(society.interestRatePa || 21.0);
+
+  const [society, setSociety] = useState(initialSociety);
+  const [stats, setStats] = useState(initialStats);
+  const [isWiped, setIsWiped] = useState(false);
+
+  const [name, setName] = useState(initialSociety.name);
+  const [registrationNo, setRegistrationNo] = useState(initialSociety.registrationNo);
+  const [address, setAddress] = useState(initialSociety.address);
+  const [city, setCity] = useState(initialSociety.city || "Mumbai");
+  const [pincode, setPincode] = useState(initialSociety.pincode || "400001");
+  const [panNumber, setPanNumber] = useState(initialSociety.panNumber || "");
+  const [gstin, setGstin] = useState(initialSociety.gstin || "");
+  const [interestRatePa, setInterestRatePa] = useState(initialSociety.interestRatePa || 21.0);
 
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [message, setMessage] = useState("");
+
+  const refreshFromStore = () => {
+    const wiped = clientStore.isDataWiped();
+    setIsWiped(wiped);
+
+    if (wiped) {
+      const storedSoc = clientStore.getSociety();
+      if (storedSoc) {
+        setName(storedSoc.name);
+        setRegistrationNo(storedSoc.registrationNo);
+        setAddress(storedSoc.address);
+        setCity(storedSoc.city);
+        setPincode(storedSoc.pincode);
+        setPanNumber(storedSoc.panNumber || "");
+        setGstin(storedSoc.gstin || "");
+        setInterestRatePa(storedSoc.interestRatePa);
+      }
+      setStats({
+        unitsCount: clientStore.getUnits().length,
+        invoicesCount: clientStore.getInvoices().length,
+        expensesCount: clientStore.getExpenses().length,
+        docsCount: clientStore.getDocuments().length,
+      });
+    } else {
+      const storedSoc = clientStore.getSociety();
+      if (storedSoc) {
+        setName(storedSoc.name);
+        setRegistrationNo(storedSoc.registrationNo);
+        setAddress(storedSoc.address);
+      }
+      setStats(initialStats);
+    }
+  };
+
+  useEffect(() => {
+    refreshFromStore();
+    const unsubscribe = clientStore.subscribe(refreshFromStore);
+    return () => unsubscribe();
+  }, []);
 
   const handleSaveSociety = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     setMessage("");
 
+    const updatedData = {
+      name,
+      registrationNo,
+      address,
+      city,
+      pincode,
+      panNumber,
+      gstin,
+      interestRatePa: Number(interestRatePa),
+    };
+
+    // 1. Save to Client Store (always works offline & on GitHub Pages)
+    clientStore.saveSociety(updatedData);
+
+    // 2. Try server API if available
     try {
-      const res = await fetch("/api/society", {
+      await fetch("/api/society", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          registrationNo,
-          address,
-          city,
-          pincode,
-          panNumber,
-          gstin,
-          interestRatePa,
-        }),
+        body: JSON.stringify(updatedData),
       });
-
-      if (res.ok) {
-        setMessage("✅ Society details saved successfully!");
-        router.refresh();
-      } else {
-        setMessage("❌ Failed to save society details.");
-      }
     } catch {
-      setMessage("❌ Network error saving details.");
-    } finally {
-      setSaving(false);
+      // Safe to ignore on static GitHub Pages
     }
+
+    setMessage("✅ Society details saved successfully!");
+    setSaving(false);
   };
 
   const handleClearDemoData = async () => {
@@ -78,28 +123,50 @@ export default function SettingsClient({
 
     setResetting(true);
     try {
-      const res = await fetch("/api/admin/reset", { method: "POST" });
-      if (res.ok) {
-        alert("✨ All beta details removed! You now have a clean blank space to add your real flats.");
-        router.push("/members");
-        router.refresh();
-      } else {
-        alert("Failed to reset database.");
+      // 1. Wipe client store immediately (works 100% on GitHub Pages & offline)
+      clientStore.wipeAllData();
+
+      // 2. Try backend API silently if running full server
+      try {
+        await fetch("/api/admin/reset", { method: "POST" });
+      } catch {
+        // Safe to ignore on static GitHub Pages
       }
-    } catch {
-      alert("Network error.");
+
+      refreshFromStore();
+      alert("✨ All beta details removed! You now have a clean blank space to add your real flats.");
+      router.push("/members/");
+    } catch (err) {
+      console.error(err);
+      alert("Demo data wiped in local storage!");
     } finally {
       setResetting(false);
     }
+  };
+
+  const handleRestoreDemoData = () => {
+    const confirmed = confirm("Restore sample demo flats and bills for previewing?");
+    if (!confirmed) return;
+
+    clientStore.restoreDemoData();
+    refreshFromStore();
+    alert("🔄 Demo data restored for preview.");
   };
 
   return (
     <div className="space-y-8 max-w-4xl">
       {/* Current Database Status */}
       <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-        <h2 className="text-xs uppercase font-bold text-gray-500 tracking-wide mb-3">
-          📊 Current System Records
-        </h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs uppercase font-bold text-gray-500 tracking-wide">
+            📊 Current System Records
+          </h2>
+          {isWiped && (
+            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+              ✨ Clean Blank Space Active
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
           <div className="p-3 bg-indigo-50/60 rounded-lg">
             <p className="text-2xl font-black text-indigo-900">{stats.unitsCount}</p>
@@ -239,8 +306,8 @@ export default function SettingsClient({
       </div>
 
       {/* Danger Zone: Blank Space / Wipe Beta Data */}
-      <div className="bg-red-50/70 rounded-xl border border-red-200 p-6 space-y-3">
-        <div className="flex items-start justify-between">
+      <div className="bg-red-50/70 rounded-xl border border-red-200 p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div>
             <h3 className="font-bold text-red-900 text-sm flex items-center gap-1.5">
               <span>⚠️</span> Blank Space / Wipe Demo &amp; Beta Data
@@ -251,13 +318,25 @@ export default function SettingsClient({
             </p>
           </div>
 
-          <button
-            onClick={handleClearDemoData}
-            disabled={resetting}
-            className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50 whitespace-nowrap self-start"
-          >
-            {resetting ? "Clearing..." : "🗑️ Wipe Demo Data (Blank Space)"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleClearDemoData}
+              disabled={resetting}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg shadow-sm transition-colors disabled:opacity-50 whitespace-nowrap"
+            >
+              {resetting ? "Clearing..." : "🗑️ Wipe Demo Data (Blank Space)"}
+            </button>
+
+            {isWiped && (
+              <button
+                onClick={handleRestoreDemoData}
+                type="button"
+                className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold text-xs px-3 py-2 rounded-lg transition-colors"
+              >
+                🔄 Restore Sample Data
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

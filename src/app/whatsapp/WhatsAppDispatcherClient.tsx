@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { clientStore } from "@/lib/store";
 
 interface MemberBill {
   id: string;
@@ -16,15 +17,44 @@ interface MemberBill {
 }
 
 export default function WhatsAppDispatcherClient({
-  bills,
+  bills: initialBills,
   baseUrl,
 }: {
   bills: MemberBill[];
   baseUrl: string;
 }) {
+  const [bills, setBills] = useState<MemberBill[]>(initialBills);
   const [templateType, setTemplateType] = useState<"bill" | "reminder" | "urgent">("bill");
   const [filter, setFilter] = useState<"all" | "defaulters" | "paid">("all");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const loadBills = () => {
+    if (clientStore.isDataWiped()) {
+      const invs = clientStore.getInvoices([]);
+      setBills(
+        invs.map((i) => ({
+          id: i.id,
+          wing: i.wing,
+          flatNumber: i.flatNumber,
+          ownerName: i.ownerName,
+          ownerPhone: i.ownerPhone,
+          billNumber: i.billNumber,
+          totalPayable: i.totalPayable,
+          amountPaid: i.amountPaid,
+          isSettled: i.isSettled,
+          dueDate: i.dueDate,
+        }))
+      );
+    } else {
+      setBills(initialBills);
+    }
+  };
+
+  useEffect(() => {
+    loadBills();
+    const unsub = clientStore.subscribe(loadBills);
+    return () => unsub();
+  }, []);
 
   const filteredBills = bills.filter((b) => {
     if (filter === "defaulters") return !b.isSettled;

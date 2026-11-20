@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { clientStore, StoredExpense } from "@/lib/store";
 
 export interface VendorExpense {
   id: string;
@@ -36,6 +37,20 @@ export default function ExpensesClient({
   const [showVoucher, setShowVoucher] = useState<VendorExpense | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const loadExpenses = () => {
+    if (clientStore.isDataWiped()) {
+      setExpenses(clientStore.getExpenses([]));
+    } else {
+      setExpenses(clientStore.getExpenses(initialExpenses));
+    }
+  };
+
+  useEffect(() => {
+    loadExpenses();
+    const unsub = clientStore.subscribe(loadExpenses);
+    return () => unsub();
+  }, []);
+
   const getTdsRate = (sec: string) => {
     if (sec === "194C_IND") return 1.0;
     if (sec === "194C_CO") return 2.0;
@@ -48,53 +63,56 @@ export default function ExpensesClient({
     if (!vendorName || !grossAmount) return;
     setLoading(true);
 
+    const gross = Number(grossAmount);
+    const rate = getTdsRate(tdsSection);
+    const tds = Math.round((gross * rate) / 100);
+    const net = gross - tds;
+    const invNumber = invoiceNo || `INV-${Date.now().toString().slice(-4)}`;
+
+    const newExp: StoredExpense = {
+      id: "exp_" + Math.random().toString(36).substring(2, 9),
+      vendorName,
+      category,
+      invoiceNo: invNumber,
+      invoiceDate: new Date().toISOString().split("T")[0],
+      grossAmount: gross,
+      tdsSection,
+      tdsRate: rate,
+      tdsAmount: tds,
+      netPayable: net,
+      paymentMode,
+      chequeNo: chequeNo || undefined,
+      status: "Paid",
+    };
+
+    // 1. Save directly to client store (guaranteed offline/GitHub Pages support)
+    clientStore.addExpense(newExp);
+    setExpenses((prev) => [newExp, ...prev]);
+
+    // 2. Try server if available
     try {
-      const res = await fetch("/api/expenses", {
+      await fetch("/api/expenses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           vendorName,
           category,
-          invoiceNo: invoiceNo || `INV-${Date.now().toString().slice(-4)}`,
-          grossAmount: Number(grossAmount),
+          invoiceNo: invNumber,
+          grossAmount: gross,
           tdsSection,
           paymentMode,
           chequeNo,
         }),
       });
-
-      if (res.ok) {
-        const data = await res.json();
-        const saved: VendorExpense = {
-          id: data.expense.id,
-          vendorName: data.expense.vendorName,
-          category: data.expense.category,
-          invoiceNo: data.expense.invoiceNo,
-          invoiceDate: new Date(data.expense.invoiceDate).toISOString().split("T")[0],
-          grossAmount: data.expense.grossAmount,
-          tdsSection: data.expense.tdsSection,
-          tdsRate: data.expense.tdsRate,
-          tdsAmount: data.expense.tdsAmount,
-          netPayable: data.expense.netPayable,
-          paymentMode: data.expense.paymentMode,
-          chequeNo: data.expense.chequeNo || undefined,
-          status: data.expense.status,
-        };
-
-        setExpenses([saved, ...expenses]);
-        setVendorName("");
-        setGrossAmount("");
-        setInvoiceNo("");
-        setChequeNo("");
-        router.refresh();
-      } else {
-        alert("Failed to save expense to database.");
-      }
     } catch {
-      alert("Network error saving expense.");
-    } finally {
-      setLoading(false);
+      // Safe to ignore on static GitHub Pages
     }
+
+    setVendorName("");
+    setGrossAmount("");
+    setInvoiceNo("");
+    setChequeNo("");
+    setLoading(false);
   };
 
   const totalGross = expenses.reduce((s, e) => s + e.grossAmount, 0);

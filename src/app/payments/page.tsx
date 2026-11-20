@@ -1,8 +1,6 @@
 import prisma from "@/lib/prisma";
 import PaymentForm from "./PaymentForm";
 
-export const dynamic = "force-dynamic";
-
 export default async function PaymentsPage() {
   const society = await prisma.society.findFirst();
   if (!society) return <div>No society found</div>;

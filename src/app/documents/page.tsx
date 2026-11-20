@@ -1,8 +1,6 @@
 import prisma from "@/lib/prisma";
 import DocumentVaultClient from "./DocumentVaultClient";
 
-export const dynamic = "force-dynamic";
-
 export default async function DocumentsPage() {
   const society = await prisma.society.findFirst();
   const dbDocs = society

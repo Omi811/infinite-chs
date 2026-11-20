@@ -4,19 +4,46 @@ import { notFound } from "next/navigation";
 import { generateUpiQrDataUrl } from "@/lib/upi-qr";
 import PrintButton from "./PrintButton";
 
-export const dynamic = "force-dynamic";
+export async function generateStaticParams() {
+  try {
+    const invoices = await prisma.invoice.findMany({ select: { id: true } });
+    if (invoices.length === 0) return [{ id: "demo" }];
+    return invoices.map((inv) => ({ id: inv.id }));
+  } catch {
+    return [{ id: "demo" }];
+  }
+}
 
 export default async function ViewBillPage({ params }: { params: { id: string } }) {
-  const invoice = await prisma.invoice.findUnique({
-    where: { id: params.id },
-    include: {
-      society: true,
-      unit: true,
-      lineItems: true,
-    },
-  });
+  let invoice = null;
+  try {
+    invoice = await prisma.invoice.findUnique({
+      where: { id: params.id },
+      include: {
+        society: true,
+        unit: true,
+        lineItems: true,
+      },
+    });
+  } catch {}
 
-  if (!invoice) return notFound();
+  if (!invoice) {
+    // Fallback for static export / demo view
+    return (
+      <div className="max-w-4xl mx-auto py-12 text-center">
+        <h2 className="text-xl font-bold text-gray-800">Bill View</h2>
+        <p className="text-xs text-gray-500 mt-2">
+          Select a flat from the Billing table to view and print its official maintenance invoice.
+        </p>
+        <Link
+          href="/billing"
+          className="mt-4 inline-block bg-indigo-600 text-white font-bold text-xs px-4 py-2 rounded-lg"
+        >
+          ← Back to Billing
+        </Link>
+      </div>
+    );
+  }
 
   const society = invoice.society;
   const unit = invoice.unit;
@@ -134,7 +161,7 @@ export default async function ViewBillPage({ params }: { params: { id: string } 
 
         {/* Itemized Table of Particulars (Model Bye-law 67 & 68) */}
         <table className="w-full text-xs border border-gray-300 mb-4">
-          <thead className="bg-gray-200 text-gray-800 font-bold border-b border-gray-300">
+          <thead className="bg-gray-200 text-gray-800 font-bold border-b border-gray-300 text-center">
             <tr>
               <th className="py-2 px-3 text-center w-12 border-r border-gray-300">Sr.</th>
               <th className="py-2 px-4 text-left border-r border-gray-300">Particulars / Statutory Head</th>

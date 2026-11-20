@@ -1,8 +1,6 @@
 import prisma from "@/lib/prisma";
 import ExpensesClient from "./ExpensesClient";
 
-export const dynamic = "force-dynamic";
-
 export default async function ExpensesPage() {
   const society = await prisma.society.findFirst();
   const initialExpenses = society

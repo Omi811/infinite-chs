@@ -1,7 +1,5 @@
 import WorkspaceClient from "./WorkspaceClient";
 
-export const dynamic = "force-dynamic";
-
 export default async function WorkspacePage() {
   return (
     <div className="space-y-6">

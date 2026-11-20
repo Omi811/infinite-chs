@@ -2,8 +2,6 @@ import prisma from "@/lib/prisma";
 import WhatsAppDispatcherClient from "./WhatsAppDispatcherClient";
 import { headers } from "next/headers";
 
-export const dynamic = "force-dynamic";
-
 export default async function WhatsAppPage() {
   const society = await prisma.society.findFirst();
   if (!society) return <div>No society found</div>;
@@ -14,11 +12,15 @@ export default async function WhatsAppPage() {
     orderBy: [{ unit: { wing: "asc" } }, { unit: { flatNumber: "asc" } }],
   });
 
-  // Get current host from request headers
-  const headersList = headers();
-  const host = headersList.get("host") || "localhost:3000";
-  const protocol = host.includes("trycloudflare.com") || host.includes("https") ? "https" : "http";
-  const baseUrl = `${protocol}://${host}`;
+  let baseUrl = "https://omi811.github.io/infinite-chs";
+  try {
+    const headersList = headers();
+    const host = headersList.get("host");
+    if (host) {
+      const protocol = host.includes("trycloudflare.com") || host.includes("https") ? "https" : "http";
+      baseUrl = `${protocol}://${host}`;
+    }
+  } catch {}
 
   const bills = invoices.map((inv) => ({
     id: inv.id,

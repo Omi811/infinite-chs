@@ -2,8 +2,6 @@ import prisma from "@/lib/prisma";
 import TaxCalculatorClient from "./TaxCalculatorClient";
 import SmartCategorizerClient from "./SmartCategorizerClient";
 
-export const dynamic = "force-dynamic";
-
 export default async function TallyAgentPage() {
   const society = await prisma.society.findFirst();
   if (!society) return <div>No society found</div>;

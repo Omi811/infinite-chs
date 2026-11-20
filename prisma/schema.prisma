@@ -1,0 +1,165 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Society {
+  id               String   @id @default(uuid())
+  name             String
+  registrationNo   String   @unique
+  address          String
+  city             String   @default("Mumbai")
+  pincode          String
+  panNumber        String?
+  gstin            String?
+  interestRatePa   Float    @default(21.0)
+  createdAt        DateTime @default(now())
+
+  units            Unit[]
+  billHeads        BillHead[]
+  invoices         Invoice[]
+  payments         Payment[]
+  expenses         Expense[]
+  documents        Document[]
+}
+
+model Unit {
+  id                    String   @id @default(uuid())
+  societyId             String
+  wing                  String
+  flatNumber            String
+  ownerName             String
+  ownerPhone            String
+  ownerEmail            String?
+  carpetAreaSqft        Float
+  constructionCost      Float
+  occupancy             String   @default("self_occupied") // self_occupied | tenanted | vacant
+  tapCount              Int      @default(1)
+  twoWheelerSlots       Int      @default(0)
+  fourWheelerSlots      Int      @default(0)
+  
+  // Statutory MCS Act Fields (Form 'I' & 'J' Registers)
+  shareCertificateNo    String?  @default("SC-001")
+  shareDistinctiveFrom  Int?     @default(1)
+  shareDistinctiveTo    Int?     @default(5)
+  shareValue            Float?   @default(250.0) // 5 shares of Rs 50 each
+  entranceFeePaid       Float?   @default(100.0)
+  admissionDate         DateTime @default(now())
+  nomineeName           String?
+  nomineeRelation       String?
+  
+  createdAt             DateTime @default(now())
+
+  society               Society    @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  invoices              Invoice[]
+  payments              Payment[]
+  documents             Document[]
+
+  @@unique([societyId, wing, flatNumber])
+}
+
+model BillHead {
+  id                   String   @id @default(uuid())
+  societyId            String
+  name                 String
+  calculationMethod    String   // fixed_equal | per_sqft | construction_cost_percent | per_tap | parking_slot
+  rate                 Float    // Amount or percentage
+  isStatutory          Boolean  @default(false)
+  appliesToTenantsOnly Boolean  @default(false)
+
+  society              Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  lineItems            InvoiceLineItem[]
+}
+
+model Invoice {
+  id              String   @id @default(uuid())
+  societyId       String
+  unitId          String
+  billNumber      String
+  billingDate     DateTime
+  dueDate         DateTime
+  periodStart     DateTime
+  periodEnd       DateTime
+  principalAmount Float    @default(0)
+  interestAmount  Float    @default(0)
+  arrearsAmount   Float    @default(0)
+  totalPayable    Float
+  amountPaid      Float    @default(0)
+  isSettled       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  society         Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  unit            Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  lineItems       InvoiceLineItem[]
+
+  @@unique([societyId, billNumber])
+}
+
+model InvoiceLineItem {
+  id         String  @id @default(uuid())
+  invoiceId  String
+  billHeadId String
+  headName   String
+  amount     Float
+
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  billHead   BillHead @relation(fields: [billHeadId], references: [id])
+}
+
+model Payment {
+  id              String   @id @default(uuid())
+  societyId       String
+  unitId          String
+  receiptNumber   String
+  paymentDate     DateTime
+  amount          Float
+  mode            String   // upi | neft | cheque | cash
+  transactionRef  String?
+  status          String   @default("cleared") // pending | cleared | bounced
+  createdAt       DateTime @default(now())
+
+  society         Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  unit            Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@unique([societyId, receiptNumber])
+}
+
+model Expense {
+  id            String   @id @default(uuid())
+  societyId     String
+  vendorName    String
+  category      String
+  invoiceNo     String
+  invoiceDate   DateTime
+  grossAmount   Float
+  tdsSection    String   @default("NONE") // 194C_IND | 194C_CO | 194J | NONE
+  tdsRate       Float    @default(0)
+  tdsAmount     Float    @default(0)
+  netPayable    Float
+  paymentMode   String   @default("Cheque") // Cheque | NEFT | Cash
+  chequeNo      String?
+  status        String   @default("Paid")   // Paid | Pending
+  createdAt     DateTime @default(now())
+
+  society       Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+}
+
+model Document {
+  id            String   @id @default(uuid())
+  societyId     String
+  unitId        String?
+  name          String
+  category      String   // Flat Document | Society Compliance | Audit & Bank | Vendor Contract
+  flatReference String?
+  fileSize      String   @default("1.0 MB")
+  fileType      String   @default("pdf") // pdf | xlsx | image
+  fileUrl       String?
+  createdAt     DateTime @default(now())
+
+  society       Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  unit          Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+}

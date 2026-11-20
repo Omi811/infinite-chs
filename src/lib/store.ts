@@ -104,6 +104,8 @@ export interface StoredPayment {
   unitWing: string;
   unitFlat: string;
   ownerName: string;
+  invoiceId?: string;
+  status?: "cleared" | "pending" | "bounced";
 }
 
 class ClientStore {
@@ -350,6 +352,128 @@ class ClientStore {
       localStorage.setItem(PAYMENTS_KEY, JSON.stringify(updated));
       this.notify();
     }
+  }
+
+  // --- Auto-Bill & Auto-Payment Automation ---
+  public recordBillPayment(
+    invoiceId: string,
+    details: { amount?: number; mode: string; referenceNo?: string; paymentDate?: string }
+  ): StoredPayment | null {
+    const invoices = this.getInvoices([]);
+    const invoiceIndex = invoices.findIndex((i) => i.id === invoiceId);
+    if (invoiceIndex === -1) return null;
+
+    const invoice = invoices[invoiceIndex];
+    const payAmount = details.amount !== undefined ? details.amount : invoice.totalPayable;
+    const now = new Date();
+    const receiptSeq = Math.floor(1000 + Math.random() * 9000);
+    const receiptNo = `RCP-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${receiptSeq}`;
+
+    // Update invoice status
+    const updatedInvoices = [...invoices];
+    updatedInvoices[invoiceIndex] = {
+      ...invoice,
+      amountPaid: payAmount,
+      isSettled: payAmount >= invoice.totalPayable,
+    };
+
+    if (this.isBrowser()) {
+      localStorage.setItem(INVOICES_KEY, JSON.stringify(updatedInvoices));
+    }
+
+    const newPayment: StoredPayment = {
+      id: "pay_" + Math.random().toString(36).substring(2, 9),
+      receiptNo,
+      paymentDate: details.paymentDate || now.toISOString().split("T")[0],
+      amount: payAmount,
+      mode: details.mode || "UPI",
+      referenceNo: details.referenceNo || `TXN-${Date.now().toString().slice(-6)}`,
+      unitWing: invoice.wing,
+      unitFlat: invoice.flatNumber,
+      ownerName: invoice.ownerName,
+      invoiceId: invoice.id,
+      status: "cleared",
+    };
+
+    this.addPayment(newPayment);
+    return newPayment;
+  }
+
+  public autoSettleAllBills(mode: string = "UPI"): number {
+    const invoices = this.getInvoices([]);
+    const unpaid = invoices.filter((i) => !i.isSettled);
+    if (unpaid.length === 0) return 0;
+
+    unpaid.forEach((inv) => {
+      this.recordBillPayment(inv.id, {
+        amount: inv.totalPayable,
+        mode,
+        referenceNo: `AUTO-${Date.now().toString().slice(-6)}`,
+      });
+    });
+
+    return unpaid.length;
+  }
+
+  public autoGenerateMonthlyBills(
+    monthNumber: number = 10,
+    year: number = 2026,
+    dueDay: number = 21
+  ): StoredInvoice[] {
+    const units = this.getUnits([]);
+    if (units.length === 0) return [];
+
+    const monthStr = String(monthNumber).padStart(2, "0");
+    const billDate = `${year}-${monthStr}-01`;
+    const dueDate = `${year}-${monthStr}-${String(dueDay).padStart(2, "0")}`;
+
+    const newInvoices: StoredInvoice[] = units.map((u, idx) => {
+      const sinkingFund = Math.round((u.constructionCost * 0.0025) / 12);
+      const repairFund = Math.round((u.constructionCost * 0.0075) / 12);
+      const propTax = Math.round(u.carpetAreaSqft * 8.5);
+      const waterCharges = 250;
+      const electricity = 400;
+      const liftAMC = 350;
+      const security = 600;
+      const parking = (u.fourWheelerSlots || 0) * 150;
+      const noc = u.occupancy === "tenanted" ? Math.round((sinkingFund + repairFund + propTax) * 0.1) : 0;
+      const total = sinkingFund + repairFund + propTax + waterCharges + electricity + liftAMC + security + parking + noc;
+
+      return {
+        id: `inv_${u.id}_${year}_${monthStr}`,
+        billNumber: `SG-${year}-${monthStr}-${String(idx + 1).padStart(3, "0")}`,
+        unitId: u.id,
+        wing: u.wing,
+        flatNumber: u.flatNumber,
+        ownerName: u.ownerName,
+        ownerPhone: u.ownerPhone,
+        billDate,
+        dueDate,
+        totalPayable: total,
+        amountPaid: 0,
+        isSettled: false,
+        breakup: {
+          maintenanceCharge: propTax + liftAMC + security,
+          sinkingFund,
+          repairFund,
+          parkingCharges: parking,
+          waterCharges,
+          electricityCharges: electricity,
+          interestArrears: 0,
+        },
+      };
+    });
+
+    // Replace or merge into invoices list
+    const current = this.getInvoices([]);
+    const existingIds = new Set(newInvoices.map((i) => i.id));
+    const merged = [...newInvoices, ...current.filter((i) => !existingIds.has(i.id))];
+
+    if (this.isBrowser()) {
+      localStorage.setItem(INVOICES_KEY, JSON.stringify(merged));
+      this.notify();
+    }
+    return newInvoices;
   }
 }
 
